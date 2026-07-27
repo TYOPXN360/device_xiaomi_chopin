@@ -12,6 +12,7 @@ include device/xiaomi/mt6893-common/BoardConfigCommon.mk
 TARGET_SCREEN_DENSITY := 440
 
 # Properties
+TARGET_PRODUCT_PROP += $(DEVICE_PATH)/product.prop
 TARGET_VENDOR_PROP += $(DEVICE_PATH)/vendor.prop
 
 # Security Patch Level

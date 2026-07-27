@@ -341,6 +341,17 @@
          -->
     <string name="config_mainBuiltInDisplayCutout">M 0,0 H -36 V 96 H 36 V 0 H 0 Z</string>
 
+    <!-- Side-mounted fingerprint sensor. -->
+    <array name="config_sfps_sensor_props" translatable="false">
+        <array>
+            <item></item>
+            <item>1080</item>
+            <item>999</item>
+            <item>145</item>
+        </array>
+    </array>
+    <bool name="config_is_powerbutton_fps" translatable="false">true</bool>
+
     <!-- Shutdown if the battery temperature exceeds (this value * 0.1) Celsius. -->
     <integer name="config_shutdownBatteryTemperature">599</integer>
 

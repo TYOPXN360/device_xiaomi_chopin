@@ -250,10 +250,6 @@
     <!-- Indicates whether device has a power button fingerprint sensor. -->
     <bool name="config_is_powerbutton_fps">true</bool>
 
-    <!-- An array of arrays of side fingerprint sensor properties relative to each display.
-         Note: this value is temporary and is expected to be queried directly
-         from the HAL in the future. -->
-
     <!-- Vibrator pattern for a very short but reliable vibration for soft keyboard tap -->
     <integer-array name="config_keyboardTapVibePattern">
         <item>40</item>

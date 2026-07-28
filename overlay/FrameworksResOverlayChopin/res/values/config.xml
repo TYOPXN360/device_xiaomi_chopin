@@ -253,6 +253,15 @@
     <!-- An array of arrays of side fingerprint sensor properties relative to each display.
          Note: this value is temporary and is expected to be queried directly
          from the HAL in the future. -->
+    <array name="config_sfps_sensor_props" translatable="false">
+        <item>@array/config_sfps_sensor_props_chopin</item>
+    </array>
+    <array name="config_sfps_sensor_props_chopin" translatable="false">
+        <item></item>
+        <item>1080</item>
+        <item>999</item>
+        <item>145</item>
+    </array>
 
     <!-- Vibrator pattern for a very short but reliable vibration for soft keyboard tap -->
     <integer-array name="config_keyboardTapVibePattern">

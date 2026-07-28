@@ -6,10 +6,10 @@
 # Inherit from device makefile.
 $(call inherit-product, device/xiaomi/chopin/device.mk)
 
-# Inherit LineageOS product
-$(call inherit-product, vendor/lineage/config/common_full_phone.mk)
+# Inherit custom product configuration
+$(call inherit-product, vendor/custom/config/common_full_phone.mk)
 
-PRODUCT_NAME := lineage_chopin
+PRODUCT_NAME := custom_chopin
 PRODUCT_DEVICE := chopin
 PRODUCT_MANUFACTURER := Xiaomi
 PRODUCT_BRAND := POCO

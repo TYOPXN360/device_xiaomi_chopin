@@ -4,4 +4,4 @@
 #
 
 PRODUCT_MAKEFILES := \
-    $(LOCAL_DIR)/lineage_chopin.mk
+    $(LOCAL_DIR)/custom_chopin.mk

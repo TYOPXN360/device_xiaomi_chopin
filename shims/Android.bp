@@ -1,0 +1,34 @@
+//
+// libio2 -- ION front-end for the chopin camera blobs.
+//
+// The camera HAL's BaseImageBufferHeap calls ion_import() and
+// ion_custom_ioctl() and branches on BufferAllocator::CheckIonSupport().
+// The AOSP libion.so on this tree rejects all of it before reaching the
+// kernel: its legacy probe encodes the wrong struct size, so the probe
+// fails, libion latches "not legacy", and ion_import returns -EINVAL
+// without issuing an ioctl at all.
+//
+// The kernel side is healthy -- /dev/ion implements the classic
+// ALLOC/FREE/MAP/SHARE/IMPORT/CUSTOM ioctls and dma-heap buffers from
+// /dev/dma_heap/mtk_mm carry ION's own dma_buf_ops, so ION_IOC_IMPORT
+// accepts them. Verified on device: ion_import of a dma-heap fd returns 0
+// and ION_MM_GET_IOVA hands back a physical address.
+//
+// libmtkcam_imgbuf.so gets its DT_NEEDED repointed from libion.so to
+// libio2.so (same string length, done in extract-files.py), so these
+// symbols win resolution while the real libion.so still loads for
+// everything else.
+//
+cc_library_shared {
+    name: "libio2",
+    vendor: true,
+    srcs: ["libion_shim.c"],
+    cflags: [
+        "-Wall",
+        "-Wno-unused-parameter",
+    ],
+    shared_libs: [
+        "libc",
+        "libdl",
+    ],
+}

@@ -55,6 +55,29 @@ blob_fixups: blob_fixups_user_type = {
     # (60 00 00 36); padding it to a nop (1f 20 03 d5) makes the next
     # instruction -- "ldr x8, [x8, #456]", the Ion vtable slot -- execute
     # unconditionally. One instruction, no AOSP source touched.
+    # BufferAllocator::CheckIonSupport() answers false unconditionally in
+    # this AOSP release, and everything that needs an IOVA asks it first.
+    # The camera HAL's CcuMemMgr is one of those: with false it allocates
+    # through dma-heap, which never returns an IOVA, so CcuBuffer's mva
+    # stays 0, logBufMva[0] comes out 0, CcuDrvImp::init() reports
+    # "buffer address violation" and CcuDrvImp::boot() memsets a NULL
+    # pointer one megabyte wide.
+    #
+    # lib3a.ccuif.so resolves this symbol from libdmabufheap.so (it is
+    # earlier in that library's DT_NEEDED than anything else providing it),
+    # so patching the answer here is the only place that takes effect --
+    # repointing the HAL's own DT_NEEDED or interposing from another
+    # library gets overridden. Only libmtkcam_imgbuf.so and
+    # lib3a.ccuif.so call it; gralloc, codec2 and libui do not, so this
+    # does not disturb buffer allocation elsewhere.
+    #
+    # mov w0, wzr -> mov w0, #1, both being 8 bytes including the ret.
+    ('system/lib64/libdmabufheap.so', 'vendor/lib64/libdmabufheap.so'): blob_fixup()
+        .binary_regex_replace(
+            b'\xe0\x03\x1f\x2a\xc0\x03\x5f\xd6',
+            b'\x20\x00\x80\x52\xc0\x03\x5f\xd6',
+            occurances=1,
+        ),
     'vendor/lib64/libmtkcam_imgbuf.so': blob_fixup()
         .binary_regex_replace(
             b'\x60\x00\x00\x36', b'\x1f\x20\x03\xd5',

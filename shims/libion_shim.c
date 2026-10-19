@@ -49,6 +49,36 @@ static long mtk_ioctl(int fd, unsigned long req, void *arg)
 	return x0;
 }
 
+
+/*
+ * Diagnostics. A HAL-side failure that never reaches the kernel is invisible
+ * in dmesg, so write a marker there: openat=56, write=64, close=57 on arm64.
+ */
+static void kmsg(const char *msg)
+{
+	register long x0 __asm__("x0");
+	register long x1 __asm__("x1");
+	register long x2 __asm__("x2");
+	register long x3 __asm__("x3");
+	register long x8 __asm__("x8");
+	int fd, n;
+	const char *p = msg;
+
+	x0 = -100; x1 = (long)"/dev/kmsg"; x2 = 1; x3 = 0; x8 = 56;
+	__asm__ volatile("svc #0" : "+r"(x0) : "r"(x1), "r"(x2), "r"(x3), "r"(x8) : "memory");
+	if ((long)x0 < 0)
+		return;
+	fd = (int)x0;
+
+	for (n = 0; p[n]; n++)
+		;
+	x0 = fd; x1 = (long)p; x2 = n; x8 = 64;
+	__asm__ volatile("svc #0" : "+r"(x0) : "r"(x1), "r"(x2), "r"(x8) : "memory");
+
+	x0 = fd; x8 = 57;
+	__asm__ volatile("svc #0" : "+r"(x0) : : "memory");
+}
+
 static int ion_dev(void)
 {
 	int fd;
@@ -90,8 +120,25 @@ int ion_import(int devfd, int dmabuf, ion_user_handle_t *out)
 
 	arg.handle = 0;
 	arg.fd = dmabuf;
-	if (mtk_ioctl(fd, ION_IOC_IMPORT_MTK, &arg) != 0)
-		return -22;
+	if (mtk_ioctl(fd, ION_IOC_IMPORT_MTK, &arg) != 0) {
+		/*
+		 * devfd is whatever the caller had at hand. libcamdrv_imem.so
+		 * passes a per-module descriptor that is not /dev/ion, so the
+		 * ioctl comes back ENOTTY and the import never reaches the ION
+		 * driver. Retry once against our own /dev/ion handle.
+		 */
+		int own = ion_dev();
+
+		kmsg("libio2: ion_import retry on own fd\n");
+		if (own < 0 || own == fd)
+			return -22;
+		arg.handle = 0;
+		arg.fd = dmabuf;
+		if (mtk_ioctl(own, ION_IOC_IMPORT_MTK, &arg) != 0) {
+			kmsg("libio2: ion_import ioctl FAILED\n");
+			return -22;
+		}
+	}
 	if (out)
 		*out = arg.handle;
 	return 0;
@@ -267,4 +314,57 @@ int ion_alloc_mm(int devfd, size_t len, size_t align, unsigned int flags,
 			*handle = a.handle;
 	}
 	return ret;
+}
+
+
+/*
+ * ion_alloc(fd, len, align, heap_mask, flags, handle)
+ *
+ * AOSP's six-argument entry point. libcamdrv_imem.so and libdip_imem.so
+ * call it that way -- w3 holds 0x10000 (ION_HEAP_TYPE_CUSTOM), w4 the real
+ * flags, x5 the out handle -- and libion.so's copy refuses every request
+ * once its legacy probe fails, which is why IMEM's cacheSyncbyRange could
+ * never import a buffer and capture aborted in
+ * AppStreamBufferBuilder::createImageStreamBuffer.
+ *
+ * Delegate to ion_alloc_mm so there is one allocation path, not two.
+ */
+int ion_alloc(int devfd, size_t len, size_t align, unsigned int heap_mask,
+	      unsigned int flags, ion_user_handle_t *handle)
+{
+	(void)heap_mask;
+	return ion_alloc_mm(devfd, len, align, flags, handle);
+}
+
+
+/*
+ * Symbols libcamdrv_imem.so and libdip_imem.so also need. They live in
+ * libion_mtk.so today; providing them here keeps the IMEM libraries from
+ * resolving half their ION calls through this shim and half through a
+ * library whose probe failed.
+ */
+extern void *mmap(void *addr, size_t len, int prot, int flags, int fd,
+		  long offset);
+extern int munmap(void *addr, size_t len);
+
+void *ion_mmap(int fd, void *addr, size_t len, int prot, int flags,
+	       int share_fd, long offset)
+{
+	(void)fd;
+	(void)offset;
+	return mmap(addr, len, prot, flags, share_fd, 0);
+}
+
+int ion_munmap(int fd, void *addr, size_t len)
+{
+	(void)fd;
+	return munmap(addr, len);
+}
+
+int ion_share_close(int fd, int share_fd)
+{
+	(void)fd;
+	if (share_fd >= 0)
+		close(share_fd);
+	return 0;
 }

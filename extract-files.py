@@ -72,6 +72,21 @@ blob_fixups: blob_fixups_user_type = {
     # does not disturb buffer allocation elsewhere.
     #
     # mov w0, wzr -> mov w0, #1, both being 8 bytes including the ret.
+    # APUSYS (the APU/MDLA runtime behind AI 3A) resolves ion_import from the
+    # same broken libion.so. Every inference buffer import failed with
+    #
+    #   apusys: import: fail to get ion buffer by import (devFd=18, shared_fd=227)
+    #   neuron : MDLA failed to import ion fd (372) in HintFrontendBuffer!
+    #
+    # even though devFd 18 is a perfectly good /dev/ion. Point it at the shim
+    # too -- it needs exactly the same symbol set as libcamdrv_imem.so, which
+    # this library already covers.
+    ('vendor/lib64/libapusys.so',): blob_fixup()
+        .binary_regex_replace(
+            b'libion.so\x00',
+            b'libio2.so\x00',
+            occurances=1,
+        ),
     ('system/lib64/libdmabufheap.so', 'vendor/lib64/libdmabufheap.so'): blob_fixup()
         .binary_regex_replace(
             b'\xe0\x03\x1f\x2a\xc0\x03\x5f\xd6',

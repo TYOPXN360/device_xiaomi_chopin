@@ -32,6 +32,7 @@ extern void *dlsym(void *, const char *);
 #define ION_IOC_SHARE_MTK  0xc0084904UL
 #define ION_IOC_FREE_MTK   0xc0044901UL
 #define ION_IOC_CUSTOM_MTK 0xc0104906UL
+#define ION_IOC_SYNC_MTK   0xc0084907UL
 
 typedef int ion_user_handle_t;
 
@@ -223,12 +224,35 @@ int ion_map(int fd, ion_user_handle_t h, size_t len, int prot, int flags,
 	return real(ion_dev(), h, len, prot, flags, ptr, map_fd);
 }
 
+/*
+ * ion_sync_fd(fd, dmabuf_fd) -- ION_IOC_SYNC, _IOWR('I', 7, struct ion_fd_data).
+ *
+ * dlsym(RTLD_NEXT) used to resolve this, which lands on libion.so: the very
+ * library this shim exists to work around. Its probe failed, so the sync was
+ * refused and APUSYS reported
+ *
+ *   apusys: flush: ion flush fail
+ *   apusys: invalidate: ion invalidate fail
+ *
+ * on every inference buffer, leaving AI 3A's buffers unsynchronised. Issue
+ * the ioctl directly instead.
+ */
 int ion_sync_fd(int fd, int handle_fd)
 {
-	int (*real)(int, int) = (int (*)(int, int))dlsym(RTLD_NEXT, "ion_sync_fd");
-	if (!real)
+	struct fd_data arg;
+	int dev = (fd >= 0) ? fd : ion_dev();
+
+	(void)fd;
+	if (dev < 0)
+		dev = ion_dev();
+	if (dev < 0)
+		return -9;
+
+	arg.handle = 0;
+	arg.fd = handle_fd;
+	if (mtk_ioctl(dev, ION_IOC_SYNC_MTK, &arg) != 0)
 		return -22;
-	return real(ion_dev(), handle_fd);
+	return 0;
 }
 
 int ion_query_heap_cnt(int fd, int *cnt)

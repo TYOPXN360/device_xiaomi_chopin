@@ -55,6 +55,30 @@ static long mtk_ioctl(int fd, unsigned long req, void *arg)
  * Diagnostics. A HAL-side failure that never reaches the kernel is invisible
  * in dmesg, so write a marker there: openat=56, write=64, close=57 on arm64.
  */
+
+/*
+ * Android log, resolved at runtime so the shim stays -nostdlib. A HAL-side
+ * rejection has no kernel trace at all, which is why "ion_import fail" kept
+ * looking like it came from nowhere.
+ */
+extern void *dlopen(const char *, int);
+static void alog(const char *msg, long a, long b)
+{
+	static int (*lg)(int, const char *, const char *, ...) ;
+	static int tried;
+	void *h;
+
+	if (!tried) {
+		tried = 1;
+		h = dlopen("liblog.so", 1);
+		if (h)
+			lg = (int (*)(int, const char *, const char *, ...))
+				dlsym(h, "__android_log_print");
+	}
+	if (lg)
+		lg(5, "libio2", "%s a=%ld b=%ld", msg, a, b);
+}
+
 static void kmsg(const char *msg)
 {
 	register long x0 __asm__("x0");
@@ -80,12 +104,39 @@ static void kmsg(const char *msg)
 	__asm__ volatile("svc #0" : "+r"(x0) : : "memory");
 }
 
+/*
+ * fcntl(F_GETFD) as a plain syscall (25 on arm64) so we can tell whether a
+ * cached descriptor is still ours.
+ */
+static int fd_valid(int fd)
+{
+	register long x0 __asm__("x0") = fd;
+	register long x1 __asm__("x1") = 1;	/* F_GETFD */
+	register long x8 __asm__("x8") = 25;	/* fcntl */
+	__asm__ volatile("svc #0" : "+r"(x0) : "r"(x1), "r"(x8) : "memory");
+	return (long)x0 >= 0;
+}
+
+/*
+ * The camera HAL closes descriptors it believes it owns by number, and three
+ * of its threads were observed doing close(18) -- the very descriptor this
+ * shim had cached for /dev/ion. After that every ION call through it came
+ * back EBADF (1699 of them in one capture), which surfaced upstream as
+ * "ion_import fail, memId(0x170)" and then a fatal
+ * IGraphicImageBufferHeap::create.
+ *
+ * Re-validate the cached number and reopen when someone else has taken it,
+ * so a descriptor collision costs us one syscall instead of every buffer.
+ */
 static int ion_dev(void)
 {
 	int fd;
 
-	if (g_fd >= 0)
-		return g_fd;
+	if (g_fd >= 0) {
+		if (fd_valid(g_fd))
+			return g_fd;
+		g_fd = -2;
+	}
 	if (g_fd != -2)
 		return -1;
 	fd = open("/dev/ion", O_RDONLY | O_CLOEXEC);
@@ -130,12 +181,14 @@ int ion_import(int devfd, int dmabuf, ion_user_handle_t *out)
 		 */
 		int own = ion_dev();
 
+		alog("libio2: import retry devfd", devfd, dmabuf);
 		kmsg("libio2: ion_import retry on own fd\n");
 		if (own < 0 || own == fd)
 			return -22;
 		arg.handle = 0;
 		arg.fd = dmabuf;
 		if (mtk_ioctl(own, ION_IOC_IMPORT_MTK, &arg) != 0) {
+			alog("libio2: import FAILED", devfd, dmabuf);
 			kmsg("libio2: ion_import ioctl FAILED\n");
 			return -22;
 		}

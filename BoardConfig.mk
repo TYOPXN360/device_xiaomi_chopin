@@ -20,3 +20,10 @@ VENDOR_SECURITY_PATCH := 2023-10-01
 
 # Inherit the proprietary files
 include vendor/xiaomi/chopin/BoardConfigVendor.mk
+
+# SELinux policy for this device.
+#
+# MTK's graphics HAL and SurfaceFlinger allocate through /dev/ion, but the
+# shipped policy never granted them access, so every buffer import failed
+# with EBADF and video mode stayed black.
+BOARD_SEPOLICY_DIRS += $(DEVICE_PATH)/sepolicy

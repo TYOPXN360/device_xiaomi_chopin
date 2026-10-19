@@ -1,0 +1,13 @@
+# Allow the display pipeline to reach the ION device.
+#
+# The MTK graphics HAL and SurfaceFlinger both allocate and import dma-bufs
+# through /dev/ion. Without this rule they are denied outright
+#
+#   avc: denied { read } for comm="Dispatcher_0" name="ion" dev="tmpfs"
+#     scontext=u:r:hal_graphics_composer_default:s0
+#     tcontext=u:object_r:ion_device:s0 tclass=chr_file
+#
+# and every buffer operation fails with EBADF, which is what leaves video
+# mode black and kills the session as soon as recording starts.
+allow hal_graphics_composer_default ion_device:chr_file { open read write ioctl map };
+allow surfaceflinger ion_device:chr_file { open read write ioctl map };

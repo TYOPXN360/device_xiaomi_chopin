@@ -38,7 +38,7 @@ typedef int ion_user_handle_t;
 
 struct fd_data { ion_user_handle_t handle; int fd; };
 
-static int g_fd = -2;
+static int g_fd_hi = -2;
 
 static long mtk_ioctl(int fd, unsigned long req, void *arg)
 {
@@ -128,20 +128,48 @@ static int fd_valid(int fd)
  * Re-validate the cached number and reopen when someone else has taken it,
  * so a descriptor collision costs us one syscall instead of every buffer.
  */
+/*
+ * fcntl(F_DUPFD, 1000) -- move a descriptor above the range the camera HAL
+ * hands out. Plain syscall so the shim can stay -nostdlib.
+ */
+static int dup_high(int fd)
+{
+	register long x0 __asm__("x0") = fd;
+	register long x1 __asm__("x1") = 0;	/* F_DUPFD */
+	register long x2 __asm__("x2") = 1000;
+	register long x8 __asm__("x8") = 25;	/* fcntl */
+	__asm__ volatile("svc #0" : "+r"(x0) : "r"(x1), "r"(x2), "r"(x8) : "memory");
+	return (int)x0;
+}
+
+/*
+ * Keep our /dev/ion handle out of harm's way.
+ *
+ * The HAL closes descriptors by number -- three of its threads were seen
+ * doing close(18), which happened to be ours. Validating before use reduced
+ * the resulting EBADF from 1699 to 13 per capture but cannot close the hole:
+ * between the check and the ioctl the number can still be taken away.
+ *
+ * Moving the handle to >= 1000 keeps it outside the range the HAL allocates
+ * from, so its closes cannot reach us at all.
+ */
 static int ion_dev(void)
 {
-	int fd;
+	int fd, hi;
 
-	if (g_fd >= 0) {
-		if (fd_valid(g_fd))
-			return g_fd;
-		g_fd = -2;
-	}
-	if (g_fd != -2)
-		return -1;
+	if (g_fd_hi >= 0 && fd_valid(g_fd_hi))
+		return g_fd_hi;
+	g_fd_hi = -1;
+
 	fd = open("/dev/ion", O_RDONLY | O_CLOEXEC);
-	g_fd = (fd >= 0) ? fd : -1;
-	return g_fd;
+	if (fd < 0)
+		return -1;
+	hi = dup_high(fd);
+	close(fd);
+	if (hi < 0)
+		return -1;
+	g_fd_hi = hi;
+	return hi;
 }
 
 int ion_open(void)
@@ -240,7 +268,7 @@ int ion_share(int devfd, ion_user_handle_t handle, int *share_fd)
 int ion_close(int fd)
 {
 	int (*real)(int) = (int (*)(int))dlsym(RTLD_NEXT, "ion_close");
-	if (fd >= 0 && fd == g_fd)
+	if (fd >= 0 && fd == g_fd_hi)
 		return 0;               /* keep our shared fd open */
 	return real ? real(fd) : 0;
 }

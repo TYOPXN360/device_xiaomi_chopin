@@ -22,6 +22,11 @@
 cc_library_shared {
     name: "libio2",
     vendor: true,
+    // The system-call stubs below are AArch64 only (x0-x8, svc #0), and the
+    // only consumers are the 64-bit camera blobs whose DT_NEEDED is repointed
+    // at this library. Building a 32-bit copy fails on the register names and
+    // would have nothing to serve anyway.
+    compile_multilib: "64",
     srcs: ["libion_shim.c"],
     cflags: [
         "-Wall",

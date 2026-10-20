@@ -114,6 +114,21 @@ blob_fixups: blob_fixups_user_type = {
             b'\x80\x0d\x00\x36', b'\x1f\x20\x03\xd5',
             occurances=1,
         ),
+    # lib3a.ccuif.so asks the same BufferAllocator::CheckIonSupport() question
+    # before it allocates the CCU's statistics buffers, and takes the same
+    # dma-heap side that never yields an IOVA. Two separate call sites branch
+    # on it -- 0x36000200 and 0x36000320, both "tbz w0, #0" -- so both are
+    # NOP'd here rather than patching the answer, which this library resolves
+    # from libdmabufheap.so and would otherwise need that library patched too.
+    'vendor/lib64/lib3a.ccuif.so': blob_fixup()
+        .binary_regex_replace(
+            b'\x00\x02\x00\x36', b'\x1f\x20\x03\xd5',
+            occurances=1,
+        )
+        .binary_regex_replace(
+            b'\x20\x03\x00\x36', b'\x1f\x20\x03\xd5',
+            occurances=1,
+        ),
     ('vendor/lib64/libSQLiteModule_VER_ALL.so', 'vendor/lib64/lib3a.flash.so', 'vendor/lib64/lib3a.ae.stat.so', 'vendor/lib64/lib3a.sensors.color.so', 'vendor/lib64/lib3a.sensors.flicker.so', 'vendor/lib64/libaaa_ltm.so'): blob_fixup()
         .add_needed('liblog.so'),
     'vendor/bin/hw/camerahalserver': blob_fixup()

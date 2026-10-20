@@ -6,10 +6,17 @@
 # Inherit from device makefile.
 $(call inherit-product, device/xiaomi/chopin/device.mk)
 
-# Inherit LineageOS product
-$(call inherit-product, vendor/lineage/config/common_full_phone.mk)
+# Inherit the AOSP base telephony product.
+$(call inherit-product, $(SRC_TARGET_DIR)/product/full_base_telephony.mk)
 
-PRODUCT_NAME := lineage_chopin
+# Inherit the uwuAOSP configuration. The "uwu_" product-name prefix is what
+# makes build/make/core/config.mk pull in vendor/uwu/config/BoardConfigUwU.mk,
+# which defines the KERNEL_* variables the uwu Soong generators depend on.
+UWU_DEVICE_TYPE := phone
+UWU_SUPPORTS_TELEPHONY := true
+$(call inherit-product, vendor/uwu/config/common.mk)
+
+PRODUCT_NAME := uwu_chopin
 PRODUCT_DEVICE := chopin
 PRODUCT_MANUFACTURER := Xiaomi
 PRODUCT_BRAND := POCO

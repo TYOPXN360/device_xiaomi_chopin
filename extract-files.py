@@ -94,6 +94,14 @@ blob_fixups: blob_fixups_user_type = {
             occurances=1,
         ),
     'vendor/lib64/libmtkcam_imgbuf.so': blob_fixup()
+        # Resolve the ION entry points from the shim instead of libion.so.
+        # Both names are 9 characters, so the DT_NEEDED entry is replaced in
+        # place without disturbing .dynstr. libion_mtk.so is deliberately left
+        # in the list: ion_alloc_camera() only exists there.
+        .binary_regex_replace(
+            b'libion.so\x00', b'libio2.so\x00',
+            occurances=1,
+        )
         .binary_regex_replace(
             b'\x60\x00\x00\x36', b'\x1f\x20\x03\xd5',
             occurances=1,
@@ -121,6 +129,11 @@ blob_fixups: blob_fixups_user_type = {
     # NOP'd here rather than patching the answer, which this library resolves
     # from libdmabufheap.so and would otherwise need that library patched too.
     'vendor/lib64/lib3a.ccuif.so': blob_fixup()
+        # Same DT_NEEDED swap as libmtkcam_imgbuf.so above.
+        .binary_regex_replace(
+            b'libion.so\x00', b'libio2.so\x00',
+            occurances=1,
+        )
         .binary_regex_replace(
             b'\x00\x02\x00\x36', b'\x1f\x20\x03\xd5',
             occurances=1,

@@ -18,6 +18,7 @@ from extract_utils.main import (
 )
 
 namespace_imports = [
+    'device/xiaomi/chopin',
     'hardware/mediatek',
     'hardware/xiaomi',
     'vendor/xiaomi/mt6893-common',

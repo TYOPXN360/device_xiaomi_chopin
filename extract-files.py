@@ -135,12 +135,32 @@ blob_fixups: blob_fixups_user_type = {
             b'libion.so\x00', b'libio2.so\x00',
             occurances=1,
         )
+        # There are six call sites, not two. Each branches on
+        # BufferAllocator::CheckIonSupport() and the four below were the ones
+        # that actually mattered -- most of all CcuMemMgr::init(), which is
+        # where the CCU's buffers are allocated:
+        #
+        #   0xc4d8  CcuCtrlAe::dequeCcuAeStat
+        #   0xf078  CcuMemMgr::init                 <- allocates the buffers
+        #   0xf500  CcuMemMgr::uninit
+        #   0x10448 CcuMemMgr::_ccuDeallocMem
+        #
+        # Leaving init() unpatched kept every CcuBuffer on the dma-heap side,
+        # so mva stayed 0 and CcuDrvImp::boot() memset a NULL log buffer.
         .binary_regex_replace(
-            b'\x00\x02\x00\x36', b'\x1f\x20\x03\xd5',
+            b'\x80\x05\x00\x36', b'\x1f\x20\x03\xd5',
             occurances=1,
         )
         .binary_regex_replace(
-            b'\x20\x03\x00\x36', b'\x1f\x20\x03\xd5',
+            b'\x00\x07\x00\x36', b'\x1f\x20\x03\xd5',
+            occurances=1,
+        )
+        .binary_regex_replace(
+            b'\x40\x01\x00\x36', b'\x1f\x20\x03\xd5',
+            occurances=1,
+        )
+        .binary_regex_replace(
+            b'\xe0\x01\x00\x36', b'\x1f\x20\x03\xd5',
             occurances=1,
         ),
     # Every library that imports buffers through ION needs the same treatment,

@@ -25,7 +25,14 @@
 #include <unistd.h>
 
 extern void *dlsym(void *, const char *);
+extern void *memset(void *, int, unsigned long);
+extern void *mmap(void *addr, unsigned long len, int prot, int flags,
+		  int fd, long offset);
 #define RTLD_NEXT ((void *)-1L)
+
+/* <sys/mman.h> is unavailable under -nostdlibinc; the two constants needed. */
+#define MTK_MAP_SHARED  0x01
+#define MTK_MAP_FAILED  ((void *)-1)
 
 #define ION_IOC_IMPORT_MTK 0xc0084905UL
 #define ION_IOC_MAP_MTK    0xc0084902UL
@@ -33,6 +40,7 @@ extern void *dlsym(void *, const char *);
 #define ION_IOC_FREE_MTK   0xc0044901UL
 #define ION_IOC_CUSTOM_MTK 0xc0104906UL
 #define ION_IOC_SYNC_MTK   0xc0084907UL
+#define ION_IOC_HEAP_QUERY_MTK 0xc0104908UL
 
 typedef int ion_user_handle_t;
 
@@ -289,20 +297,52 @@ int ion_is_legacy(int fd)
 
 int ion_is_using_modular_heaps(int fd)
 {
-	int (*real)(int) = (int (*)(int))dlsym(RTLD_NEXT, "ion_is_using_modular_heaps");
-	return real ? real(fd) : 0;
+	/* We service callers from the classic /dev/ion, never a modular heap.
+	 * Delegating here resolved libion.so, which reports its own state. */
+	(void)fd;
+	return 0;
 }
 
 int ion_map(int fd, ion_user_handle_t h, size_t len, int prot, int flags,
 	    unsigned char **ptr, int *map_fd)
 {
-	int (*real)(int, ion_user_handle_t, size_t, int, int,
-		    unsigned char **, int *) =
-		(int (*)(int, ion_user_handle_t, size_t, int, int,
-			 unsigned char **, int *))dlsym(RTLD_NEXT, "ion_map");
-	if (!real)
-		return -22;
-	return real(ion_dev(), h, len, prot, flags, ptr, map_fd);
+	/*
+	 * Do not delegate to libion.so. dlsym(RTLD_NEXT) resolves to the same
+	 * broken library this shim exists to bypass, and the CCU is exactly the
+	 * caller that cannot tolerate it: ion_map() is where logBufVa comes
+	 * from, and a failed map leaves it NULL, which CcuDrvImp::boot() then
+	 * memsets one megabyte wide:
+	 *
+	 *   7918: ldr x0, [x0, #0x28]    <- logBufVa[0]
+	 *   7920: mov w2, #0x100000
+	 *   7924: bl  memset@plt         <- SIGSEGV at address 0
+	 *
+	 * ION_IOC_MAP hands back a dmabuf fd for the handle; the caller mmaps
+	 * it itself, which is what the real libion does as well.
+	 */
+	{
+		struct fd_data arg;
+		int dev = ion_dev();
+
+		if (dev < 0)
+			return -9;
+		arg.handle = h;
+		arg.fd = -1;
+		if (mtk_ioctl(dev, ION_IOC_MAP_MTK, &arg) != 0)
+			return -22;
+		if (map_fd)
+			*map_fd = arg.fd;
+		if (ptr) {
+			void *p = mmap(NULL, len, prot, MTK_MAP_SHARED, arg.fd, 0);
+
+			if (p == MTK_MAP_FAILED) {
+				close(arg.fd);
+				return -22;
+			}
+			*ptr = (unsigned char *)p;
+		}
+	}
+	return 0;
 }
 
 /*
@@ -338,19 +378,34 @@ int ion_sync_fd(int fd, int handle_fd)
 
 int ion_query_heap_cnt(int fd, int *cnt)
 {
-	int (*real)(int, int *) = (int (*)(int, int *))dlsym(RTLD_NEXT, "ion_query_heap_cnt");
-	if (!real)
+	struct { unsigned int cnt; unsigned int reserved; unsigned long long heaps; } q;
+	int dev = ion_dev();
+
+	(void)fd;
+	if (dev < 0)
+		return -9;
+	memset(&q, 0, sizeof(q));
+	if (mtk_ioctl(dev, ION_IOC_HEAP_QUERY_MTK, &q) != 0)
 		return -22;
-	return real(ion_dev(), cnt);
+	if (cnt)
+		*cnt = (int)q.cnt;
+	return 0;
 }
 
 int ion_query_get_heaps(int fd, int cnt, void *buf)
 {
-	int (*real)(int, int, void *) =
-		(int (*)(int, int, void *))dlsym(RTLD_NEXT, "ion_query_get_heaps");
-	if (!real)
+	struct { unsigned int cnt; unsigned int reserved; unsigned long long heaps; } q;
+	int dev = ion_dev();
+
+	(void)fd;
+	if (dev < 0)
+		return -9;
+	memset(&q, 0, sizeof(q));
+	q.cnt = (unsigned int)cnt;
+	q.heaps = (unsigned long long)(unsigned long)buf;
+	if (mtk_ioctl(dev, ION_IOC_HEAP_QUERY_MTK, &q) != 0)
 		return -22;
-	return real(ion_dev(), cnt, buf);
+	return 0;
 }
 
 /* Allocation still goes through dma-heap and is then ION-importable. */
@@ -448,8 +503,6 @@ int ion_alloc(int devfd, size_t len, size_t align, unsigned int heap_mask,
  * resolving half their ION calls through this shim and half through a
  * library whose probe failed.
  */
-extern void *mmap(void *addr, size_t len, int prot, int flags, int fd,
-		  long offset);
 extern int munmap(void *addr, size_t len);
 
 void *ion_mmap(int fd, void *addr, size_t len, int prot, int flags,

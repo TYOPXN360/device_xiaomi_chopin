@@ -143,6 +143,40 @@ blob_fixups: blob_fixups_user_type = {
             b'\x20\x03\x00\x36', b'\x1f\x20\x03\xd5',
             occurances=1,
         ),
+    # Every library that imports buffers through ION needs the same treatment,
+    # not just the ones that were noticed first. lib3a.ccudrv.so matters most:
+    # it allocates the CCU's buffers, and while libion.so was still ahead of
+    # libion_mtk.so in its DT_NEEDED it resolved ion_import from the broken
+    # library, so every CcuBuffer came back with mva == 0:
+    #
+    #   CcuMgr: [_initBufferLists] CCU BKDATA buffer: va(0x0), mva(0), sz(32768)
+    #   CcuDrv: logBufMva[0](0x0), logBufMva[1](0x0), logBufVa[0](0x0)
+    #   CcuDrv: ERROR: buffer address violation
+    #   -> CcuDrvImp::boot()+52 -> __memset_aarch64 -> SIGSEGV at address 0
+    #
+    # libion_mtk.so stays in every list: it is the only provider of
+    # ion_alloc_camera(), and it is ordered after libio2.so so every other
+    # symbol still lands on the shim.
+    ('vendor/lib64/lib3a.ccudrv.so',
+     'vendor/lib64/lib3a.af.assist.utils.so',
+     'vendor/lib64/libSuperSensor.so',
+     'vendor/lib64/libcamalgo.platform2.so',
+     'vendor/lib64/libcamdrv_imem.so',
+     'vendor/lib64/libdip_imem.so',
+     'vendor/lib64/libimagebuffer_wrapper.so',
+     'vendor/lib64/libmtkcam_fdvt.so'): blob_fixup()
+        .binary_regex_replace(
+            b'libion.so\x00', b'libio2.so\x00',
+            occurances=1,
+        ),
+    # These two carry the same string twice -- once in .dynstr for DT_NEEDED and
+    # once in a log message -- so only the first occurrence may be rewritten.
+    ('vendor/lib64/libmialgo_ie_capture.so',
+     'vendor/lib64/libmialgo_video_enhance.so'): blob_fixup()
+        .binary_regex_replace(
+            b'libion.so\x00', b'libio2.so\x00',
+            occurances=1,
+        ),
     ('vendor/lib64/libSQLiteModule_VER_ALL.so', 'vendor/lib64/lib3a.flash.so', 'vendor/lib64/lib3a.ae.stat.so', 'vendor/lib64/lib3a.sensors.color.so', 'vendor/lib64/lib3a.sensors.flicker.so', 'vendor/lib64/libaaa_ltm.so'): blob_fixup()
         .add_needed('liblog.so'),
     'vendor/bin/hw/camerahalserver': blob_fixup()
